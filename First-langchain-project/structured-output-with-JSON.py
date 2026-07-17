@@ -33,7 +33,11 @@ president_schema = {
     }
 }
 
-structured_llm = model.with_structured_output(president_schema)
+structured_llm = model.with_structured_output(president_schema) # with_structured_output is a method that allows you to define a schema
+                                                                # for the expected output of the model. In this case, we are defining a 
+                                                                # schema for extracting information about the president of a country, including their name, 
+                                                                # country, and age. The model will then return structured data that adheres to this schema when 
+                                                                # invoked with a prompt.
 
 response = structured_llm.invoke("Who is the president of India?")
 
