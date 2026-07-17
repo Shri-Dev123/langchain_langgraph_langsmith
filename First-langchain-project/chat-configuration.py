@@ -13,3 +13,16 @@ model = ChatOpenAI(
 response = model.invoke("Explain quantum physics")
 
 print(response.content)
+
+# there are other parameters that can be passed to the model like 
+# temperature, 
+# top_p, f
+# requency_penalty, 
+# presence_penalty, 
+# stop,
+# max_retries,
+# request_timeout,
+# base_url,
+# api_key,
+# organization,
+#  etc. You can find more information about these parameters in the OpenAI API documentation.
