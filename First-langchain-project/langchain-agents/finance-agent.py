@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 from typing import Literal
 from langchain.agents.structured_output import ToolStrategy
 from langgraph.checkpoint.memory import InMemorySaver
+from langchain_core.messages import AIMessage
 
 
 load_dotenv()
@@ -456,6 +457,27 @@ agent = create_agent(
     checkpointer=checkpointer,
 )
 
+agent_for_streaming = create_agent(
+  model = basic_model,
+  tools=[
+    get_account_balance,
+    get_recent_transactions,
+    calculate_budget,
+    get_personalized_greeting,
+    transfer_money
+  ],
+  # system_prompt=system_prompt, # used for single system prompt not dynamic
+
+  context_schema=UserContext,
+  middleware=[
+    dynamic_model_selector,
+    tier_based_prompt,
+    handle_tool_errors
+    ],
+    # response_format=ToolStrategy(FinancialResponse), # Do not use structured output for streaming
+    checkpointer=checkpointer,
+)
+
 def main():
   print("="*60)
   print("Stage 1: Simple Finance Assistant")
@@ -574,40 +596,68 @@ bob_context = UserContext(
 #   print(f"* {warning}")
 # print(f"\n Confidence: {structured.confidence}")
 
-# Test 9 - Memory Test
-memory_config = {"configurable":{"thread_id":"alice_memory_test"}}
+# # Test 9 - Memory Test
+# memory_config = {"configurable":{"thread_id":"alice_memory_test"}}
 
-# Turn 1
-turn1_message = "What's my account balances"
-print(f"\n Turn 1:{turn1_message}")
-response = agent.invoke(
-  {"messages":[{"role":"user","content":turn1_message}]},
+# # Turn 1
+# turn1_message = "What's my account balances"
+# print(f"\n Turn 1:{turn1_message}")
+# response = agent.invoke(
+#   {"messages":[{"role":"user","content":turn1_message}]},
+#   context=bob_context,
+#   config=memory_config
+#   )
+# print(f"Agent: {response['structured_response'].details}")
+
+# # Turn 2
+# turn2_message = "which account has the most money"
+# print(f"\n Turn 2:{turn2_message}")
+# response = agent.invoke(
+#   {"messages":[{"role":"user","content":turn2_message}]},
+#   context=bob_context,
+#   config=memory_config
+#   )
+# print(f"Agent: {response['structured_response'].details}")
+
+# # Turn 3
+# turn3_message = "Based on what we discussed, should i move money to my savings?"
+# print(f"\n Turn 3:{turn3_message}")
+# response = agent.invoke(
+#   {"messages":[{"role":"user","content":turn3_message}]},
+#   context=bob_context,
+#   config=memory_config
+#   )
+# print(f"Agent summary: {response['structured_response'].summary}")
+# print(f"Agent Recommendations: {response['structured_response'].action_items}")
+
+
+# Test 10: Streaming
+
+bob_config = {"configurable":{"thread_id":"bob-002"}}
+query= "What's my financial situation? check all my accounts and give me advice"
+
+# for chunk in agent_for_streaming.stream(
+#   {"messages":[{"role":"user","content":query}]},
+#   context=bob_context,
+#   config=bob_config,
+#   stream_mode="updates"
+# ):
+#   for step, data in  chunk.items():
+#     print(f"Step: {step}")
+#     print(f"content:{data['messages'][-1].content_blocks}")
+
+for chunk in agent_for_streaming.stream(
+  {"messages":[{"role":"user","content":query}]},
   context=bob_context,
-  config=memory_config
-  )
-print(f"Agent: {response['structured_response'].details}")
+  config=bob_config,
+  stream_mode="values"
+):
+  latest_message = chunk['messages'][-1]
 
-# Turn 2
-turn2_message = "which account has the most money"
-print(f"\n Turn 2:{turn2_message}")
-response = agent.invoke(
-  {"messages":[{"role":"user","content":turn2_message}]},
-  context=bob_context,
-  config=memory_config
-  )
-print(f"Agent: {response['structured_response'].details}")
-
-# Turn 3
-turn3_message = "Based on what we discussed, should i move money to my savings?"
-print(f"\n Turn 3:{turn3_message}")
-response = agent.invoke(
-  {"messages":[{"role":"user","content":turn3_message}]},
-  context=bob_context,
-  config=memory_config
-  )
-print(f"Agent summary: {response['structured_response'].summary}")
-print(f"Agent Recommendations: {response['structured_response'].action_items}")
-
+  if latest_message.content:
+    print(f"Agent: {latest_message.content}")
+  elif latest_message.tool_calls:
+    print(f"Calling tools:{[tool_call['name'] for tool_call in latest_message.tool_calls]}")
 
 if __name__ == "__main__":
   main()
