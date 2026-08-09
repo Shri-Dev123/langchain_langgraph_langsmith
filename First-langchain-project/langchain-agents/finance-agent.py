@@ -12,8 +12,13 @@ from langchain.agents.middleware import (
   wrap_model_call,
   dynamic_prompt,
   ModelRequest,
-  ModelResponse
+  ModelResponse,
+  wrap_tool_call
 )
+from langchain_core.messages import ToolMessage
+from langchain.tools.tool_node import ToolCallRequest
+
+
 load_dotenv()
 
 basic_model = init_chat_model(
@@ -268,7 +273,35 @@ def get_personalized_greeting(runtime:ToolRuntime[UserContext])->str:
   benefit_msg = tier_benefits.get(tier,"")
   return f"Hello, {name}! {benefit_msg}"
 
+@tool
+def transfer_money(
+  from_account:str,
+  to_account:str,
+  amount:float,
+  runtime:ToolRuntime[UserContext])->str:
+  """Transfer money between accounts"""
 
+  if amount <= 0:
+    raise ValueError("Transfer amount must be possitive")
+  if amount > 10000:
+    raise ValueError("Transfer amout exceeds your daily limit of $10,000")
+  if from_account.lower() == to_account.lower():
+    raise ValueError("Cannot transfer to the same account")
+
+  user_id = runtime.context.user_id
+  user_data = USER_DATABASE.get(user_id,{})
+  accounts = user_data.get("accounts",{})
+
+  from_balance = accounts.get(from_account.lower())
+
+  if from_balance is None:
+    raise ValueError(f"Source acount '{from_account}' not found")
+  if to_account.lower() not in accounts:
+    raise ValueError(f"Destination account '{to_account}' not found")
+  if from_balance < amount:
+    raise ValueError(f"Insufficient funds. {from_account} balance: ${from_balance:,.2f}")
+
+  return f"Successfully transferred ${amount: .2f} from {from_account} to {to_account}"
 
 @wrap_model_call
 def dynamic_model_selector(request:ModelRequest, handler) -> ModelResponse:
@@ -332,7 +365,38 @@ def tier_based_prompt(request:ModelRequest)-> str:
     - Keep responses brief but helpful
 """
     
+@wrap_tool_call
+def handle_tool_errors(request: ToolCallRequest, handler)-> ToolMessage:
+  """Gracefully handles tool execution errors"""
+  tool_name = request.tool_call['name']
 
+  try:
+    #Attempt to execut the tool
+    return handler(request)
+
+  except ValueError as e:
+    error_message = f"{tool_name} failed: {str(e)}"
+    print(f"[Error Handler] caught ValueError: {e}")
+    return ToolMessage(
+      content=error_message,
+      tool_call_id=request.tool_call["id"]
+      )
+
+  except KeyError as e:
+      error_message = f"{tool_name} error: Required data not found - {str(e)}"
+      print(f"[Error Handler] caught KeyError: {e}")
+      return ToolMessage(
+        content=error_message,
+        tool_call_id=request.tool_call["id"]
+        )
+  
+  except Exception as e:
+        error_message = f"{tool_name} ecountered an error. please try again or contact support."
+        print(f"[Error Handler] caught Unexpected error: {type(e).__name__}-{e}")
+        return ToolMessage(
+          content=error_message,
+          tool_call_id=request.tool_call["id"]
+          )
 
 system_prompt = """You are a helpful personal finance assstant.
 
@@ -356,14 +420,16 @@ agent = create_agent(
     get_account_balance,
     get_recent_transactions,
     calculate_budget,
-    get_personalized_greeting
+    get_personalized_greeting,
+    transfer_money
   ],
   # system_prompt=system_prompt, # used for single system prompt not dynamic
 
   context_schema=UserContext,
   middleware=[
     dynamic_model_selector,
-    tier_based_prompt
+    tier_based_prompt,
+    handle_tool_errors
     ] 
 )
 
@@ -417,18 +483,48 @@ bob_context = UserContext(
   # )
   # print(f"Agent:{response3["messages"][-1].content}")
 
-# Test 4: Financial Situation and advice.
+# # Test 4: Financial Situation and advice.
 
-financial_situation_query = "What is my financial situation? check all my accounts and give me advice"
+# financial_situation_query = "What is my financial situation? check all my accounts and give me advice"
 
-print("\n Same query, different treatment")
+# print("\n Same query, different treatment")
+# print("-"*40)
+# response = agent.invoke(
+#   {"messages":[{"role":"user", "content":financial_situation_query}]},
+#   context=bob_context
+
+#   )
+
+# print(f"Agent: {response['messages'][-1].content}")
+
+# # Test 5: successfull transfer
+# successful_transfer_prompt = "Transfer $500 from checking to savings"
+# print(f"\n query: '{successful_transfer_prompt}'")
+# print("-"*40)
+# response = agent.invoke(
+#   {"messages":[{"role":"user","content":successful_transfer_prompt}]},
+#   context=alice_context,
+#   )
+# print(f"Agent: {response['messages'][-1].content}")
+
+# # Test 6: Error handling - insufficient funds
+# successful_transfer_prompt = "Transfer $5000 from checking to savings"
+# print(f"\n query: '{successful_transfer_prompt}'")
+# print("-"*40)
+# response = agent.invoke(
+#   {"messages":[{"role":"user","content":successful_transfer_prompt}]},
+#   context=alice_context,
+#   )
+# print(f"Agent: {response['messages'][-1].content}")
+
+# Test 7: Error handling - transfer to same account.
+successful_transfer_prompt = "Transfer $2000 from checking to checking"
+print(f"\n query: '{successful_transfer_prompt}'")
 print("-"*40)
 response = agent.invoke(
-  {"messages":[{"role":"user", "content":financial_situation_query}]},
-  context=bob_context
-
+  {"messages":[{"role":"user","content":successful_transfer_prompt}]},
+  context=bob_context,
   )
-
 print(f"Agent: {response['messages'][-1].content}")
 
 
