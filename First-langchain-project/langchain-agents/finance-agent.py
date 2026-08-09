@@ -17,6 +17,9 @@ from langchain.agents.middleware import (
 )
 from langchain_core.messages import ToolMessage
 from langchain.tools.tool_node import ToolCallRequest
+from pydantic import BaseModel, Field
+from typing import Literal
+from langchain.agents.structured_output import ToolStrategy
 
 
 load_dotenv()
@@ -54,6 +57,22 @@ class UserContext:
   user_name: str
   membership_tier:str # 'basic','premium','platinum'
   preferred_currency: str
+
+class FinancialResponse(BaseModel):
+  summary: str = Field(description="A Brief summary of the response (1-2 Sentences)")  
+  details: str = Field(description="Details explaination or data")
+  action_items: list[str] = Field(
+    default_factory=list,
+    description="List of recommended actions the user should take"
+  )
+  warnings: list[str] = Field(
+      default_factory=list,
+      description="Any warnings or concerns to heighlight"
+    )
+  confidence: Literal["high","medium","low"] = Field(
+    default="high",
+    description="Confidence level in the advice provided"
+  )
 
 USER_DATABASE = {
     "user_001": {
@@ -430,7 +449,8 @@ agent = create_agent(
     dynamic_model_selector,
     tier_based_prompt,
     handle_tool_errors
-    ] 
+    ],
+    response_format=ToolStrategy(FinancialResponse)
 )
 
 def main():
@@ -517,15 +537,39 @@ bob_context = UserContext(
 #   )
 # print(f"Agent: {response['messages'][-1].content}")
 
-# Test 7: Error handling - transfer to same account.
-successful_transfer_prompt = "Transfer $2000 from checking to checking"
-print(f"\n query: '{successful_transfer_prompt}'")
+# # Test 7: Error handling - transfer to same account.
+# successful_transfer_prompt = "Transfer $2000 from checking to checking"
+# print(f"\n query: '{successful_transfer_prompt}'")
+# print("-"*40)
+# response = agent.invoke(
+#   {"messages":[{"role":"user","content":successful_transfer_prompt}]},
+#   context=bob_context,
+#   )
+# print(f"Agent: {response['messages'][-1].content}")
+
+# Test 8: Structured Response
+
+financial_situation_query = "What is my financial situation? check all my accounts and give me advice"
+
+print("\n Financial breakdown for alice")
 print("-"*40)
 response = agent.invoke(
-  {"messages":[{"role":"user","content":successful_transfer_prompt}]},
-  context=bob_context,
+  {"messages":[{"role":"user", "content":financial_situation_query}]},
+  context=alice_context
+
   )
-print(f"Agent: {response['messages'][-1].content}")
+structured: FinancialResponse = response["structured_response"]
+
+print("\nSTRUCTURED RESPONSE")
+print(f"\n Summary:\n {structured.summary}")
+print(f"\n Details:\n {structured.details}")
+print(f"\n Action items:")
+for item in structured.action_items:
+  print(f"* {item}")
+print(f"\n Warnings:")
+for warning in structured.warnings:
+  print(f"* {warning}")
+print(f"\n Confidence: {structured.confidence}")
 
 
 if __name__ == "__main__":
