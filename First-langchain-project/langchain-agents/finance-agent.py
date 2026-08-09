@@ -7,8 +7,35 @@ from langchain_openai import ChatOpenAI
 from dataclasses import dataclass
 from langchain.tools import ToolRuntime
 
-
+from langchain.chat_models import init_chat_model
+from langchain.agents.middleware import (
+  wrap_model_call,
+  dynamic_prompt,
+  ModelRequest,
+  ModelResponse
+)
 load_dotenv()
+
+basic_model = init_chat_model(
+  "gpt-4o-mini",
+  temperature=0.5,
+  api_key=os.getenv("MY_CUSTOM_KEY_VARIABLE"),
+  max_tokens=512,
+)
+
+premium_model = init_chat_model(
+  "gpt-4o",
+  api_key=os.getenv("MY_CUSTOM_KEY_VARIABLE"),
+  max_tokens=2028,
+)
+
+platinum_model = init_chat_model(
+  "gpt-4o",
+  api_key=os.getenv("MY_CUSTOM_KEY_VARIABLE"),
+
+)
+
+
 
 model = ChatOpenAI(
   model="gpt-5",  # or another model you have access to
@@ -183,8 +210,6 @@ def get_account_balance(account_type:str,runtime:ToolRuntime[UserContext])-> str
   return f"Your {account_type}. Available: checking, savings, investment "
 
 
-
-
 @tool
 def get_recent_transactions(account_type:str, limit:int =5, runtime: ToolRuntime[UserContext] = None)-> str:
   """getting recent transactions for an account of a user """
@@ -243,6 +268,72 @@ def get_personalized_greeting(runtime:ToolRuntime[UserContext])->str:
   benefit_msg = tier_benefits.get(tier,"")
   return f"Hello, {name}! {benefit_msg}"
 
+
+
+@wrap_model_call
+def dynamic_model_selector(request:ModelRequest, handler) -> ModelResponse:
+  """ Selects mdodel based on User's membership tier"""
+
+  tier = request.runtime.context.membership_tier
+
+  if tier == "platinum":
+    request.override(model=platinum_model)
+    print(f"[Middleware] using PLATINUM model (gpt-4o, limitless)")
+  elif tier == "premium":
+    request.override(model=premium_model)
+    print(f"[Middleware] Using PREMIUM model (gpt-4o, 2048 tokens)")
+  else:
+    request.override(model=basic_model)
+    print(f"[Middleware] using BASIC model (gpt-4o-mini, 512 tokens)")
+
+  return handler(request)
+
+@dynamic_prompt
+def tier_based_prompt(request:ModelRequest)-> str:
+  """Generate system prompt based on user's membership tier"""
+  tier = request.runtime.context.membership_tier
+  user_name = request.runtime.context.user_name
+
+  base_prompt = f"""You are a personal finance assistant helping {user_name}.
+          Your capabilities:
+          - Check account balances (checking, savings, investment)
+          - View recent transactions
+          - Calculate budget recommendations
+          - Provide Personalized greetings
+  """
+
+  if tier == "premium":
+    return base_prompt + """
+
+    PREMIUM MEMBER BENEFITS:
+    - Provide helpful explainations with your responses.
+    - offer occassional tips for financial improvement.
+    - Be friendly and informative
+    - Balance detail with brevity
+    """
+  elif tier == "platinum":
+    return base_prompt + """
+
+    PLATINUM MEMBER BENEFITS:
+    - Proide detailed, comprehensive financial analysis
+    - Offer proactive suggestions for wealth growth
+    - Include market insights when relevant
+    - Be thorough and consultative in your responses
+    - Take extra time to explain complex concepts
+    """
+
+  else: 
+    return base_prompt + """
+
+    Guidelines:
+    - Be concise and direct
+    - Answer questions efficiently
+    - Focus on the specific request
+    - Keep responses brief but helpful
+"""
+    
+
+
 system_prompt = """You are a helpful personal finance assstant.
 
 Your capabilities:
@@ -260,15 +351,20 @@ Guidelines:
 
 
 agent = create_agent(
-  model = model,
+  model = basic_model,
   tools=[
     get_account_balance,
     get_recent_transactions,
     calculate_budget,
     get_personalized_greeting
   ],
-  system_prompt=system_prompt,
-  context_schema=UserContext 
+  # system_prompt=system_prompt, # used for single system prompt not dynamic
+
+  context_schema=UserContext,
+  middleware=[
+    dynamic_model_selector,
+    tier_based_prompt
+    ] 
 )
 
 def main():
@@ -276,50 +372,64 @@ def main():
   print("Stage 1: Simple Finance Assistant")
   print("="*60)
 
-  alice_context = UserContext(
+alice_context = UserContext(
     user_id="user_001",
     user_name="Alice Johnson",
     membership_tier="platinum",
     preferred_currency="USD")
 
-  bob_context = UserContext(
+bob_context = UserContext(
     user_id="user_002",
     user_name="Bob Smith",
     membership_tier="basic",
     preferred_currency="EUR")
 
-  # Test 1: Check Balance
+  # # Test 1: Check Balance
 
-  balance_messaage = "What is my checking account balance"
+  # balance_messaage = "What is my checking account balance"
 
-  print(f"\nQuery: {balance_messaage}")
-  response = agent.invoke(
-    {
-      "messages":[{"role":"user","content":balance_messaage}]
-    },
-    context=bob_context
+  # print(f"\nQuery: {balance_messaage}")
+  # response = agent.invoke(
+  #   {
+  #     "messages":[{"role":"user","content":balance_messaage}]
+  #   },
+  #   context=bob_context
+  # )
+  # print(f"Agent: {response['messages'][-1].content}")
+
+  # # Test 2: Multi-tool query
+
+  # multi_tool_prompt = "Show me my savings balance and recent transactions"
+
+  # print(f"\nQuery: {multi_tool_prompt}")
+  # resonse2 = agent.invoke(
+  #   {"messages":[{"role":"user", "content":multi_tool_prompt}]},
+  #   context=bob_context
+  # )
+  # print(f"Agent:{resonse2["messages"][-1].content}")
+
+
+  # # Test 3: Budget Calculation
+  # budget_prompt = "I make $5000/month. How much should I spend on housing"
+  # print(f"\nQuery:{budget_prompt}")
+  # response3 = agent.invoke(
+  #   {"messages":[{"role":"user","content":budget_prompt}]}
+  # )
+  # print(f"Agent:{response3["messages"][-1].content}")
+
+# Test 4: Financial Situation and advice.
+
+financial_situation_query = "What is my financial situation? check all my accounts and give me advice"
+
+print("\n Same query, different treatment")
+print("-"*40)
+response = agent.invoke(
+  {"messages":[{"role":"user", "content":financial_situation_query}]},
+  context=bob_context
+
   )
-  print(f"Agent: {response['messages'][-1].content}")
 
-  # Test 2: Multi-tool query
-
-  multi_tool_prompt = "Show me my savings balance and recent transactions"
-
-  print(f"\nQuery: {multi_tool_prompt}")
-  resonse2 = agent.invoke(
-    {"messages":[{"role":"user", "content":multi_tool_prompt}]},
-    context=bob_context
-  )
-  print(f"Agent:{resonse2["messages"][-1].content}")
-
-
-  # Test 3: Budget Calculation
-  budget_prompt = "I make $5000/month. How much should I spend on housing"
-  print(f"\nQuery:{budget_prompt}")
-  response3 = agent.invoke(
-    {"messages":[{"role":"user","content":budget_prompt}]}
-  )
-  print(f"Agent:{response3["messages"][-1].content}")
+print(f"Agent: {response['messages'][-1].content}")
 
 
 if __name__ == "__main__":
