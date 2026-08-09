@@ -20,6 +20,7 @@ from langchain.tools.tool_node import ToolCallRequest
 from pydantic import BaseModel, Field
 from typing import Literal
 from langchain.agents.structured_output import ToolStrategy
+from langgraph.checkpoint.memory import InMemorySaver
 
 
 load_dotenv()
@@ -432,6 +433,7 @@ Guidelines:
 - Format monetary values clearly
 - Tailor advice based on the user's membership tier"""
 
+checkpointer = InMemorySaver()
 
 agent = create_agent(
   model = basic_model,
@@ -450,7 +452,8 @@ agent = create_agent(
     tier_based_prompt,
     handle_tool_errors
     ],
-    response_format=ToolStrategy(FinancialResponse)
+    response_format=ToolStrategy(FinancialResponse),
+    checkpointer=checkpointer,
 )
 
 def main():
@@ -549,27 +552,61 @@ bob_context = UserContext(
 
 # Test 8: Structured Response
 
-financial_situation_query = "What is my financial situation? check all my accounts and give me advice"
+# financial_situation_query = "What is my financial situation? check all my accounts and give me advice"
 
-print("\n Financial breakdown for alice")
-print("-"*40)
+# print("\n Financial breakdown for alice")
+# print("-"*40)
+# response = agent.invoke(
+#   {"messages":[{"role":"user", "content":financial_situation_query}]},
+#   context=alice_context
+
+#   )
+# structured: FinancialResponse = response["structured_response"]
+
+# print("\nSTRUCTURED RESPONSE")
+# print(f"\n Summary:\n {structured.summary}")
+# print(f"\n Details:\n {structured.details}")
+# print(f"\n Action items:")
+# for item in structured.action_items:
+#   print(f"* {item}")
+# print(f"\n Warnings:")
+# for warning in structured.warnings:
+#   print(f"* {warning}")
+# print(f"\n Confidence: {structured.confidence}")
+
+# Test 9 - Memory Test
+memory_config = {"configurable":{"thread_id":"alice_memory_test"}}
+
+# Turn 1
+turn1_message = "What's my account balances"
+print(f"\n Turn 1:{turn1_message}")
 response = agent.invoke(
-  {"messages":[{"role":"user", "content":financial_situation_query}]},
-  context=alice_context
-
+  {"messages":[{"role":"user","content":turn1_message}]},
+  context=bob_context,
+  config=memory_config
   )
-structured: FinancialResponse = response["structured_response"]
+print(f"Agent: {response['structured_response'].details}")
 
-print("\nSTRUCTURED RESPONSE")
-print(f"\n Summary:\n {structured.summary}")
-print(f"\n Details:\n {structured.details}")
-print(f"\n Action items:")
-for item in structured.action_items:
-  print(f"* {item}")
-print(f"\n Warnings:")
-for warning in structured.warnings:
-  print(f"* {warning}")
-print(f"\n Confidence: {structured.confidence}")
+# Turn 2
+turn2_message = "which account has the most money"
+print(f"\n Turn 2:{turn2_message}")
+response = agent.invoke(
+  {"messages":[{"role":"user","content":turn2_message}]},
+  context=bob_context,
+  config=memory_config
+  )
+print(f"Agent: {response['structured_response'].details}")
+
+# Turn 3
+turn3_message = "Based on what we discussed, should i move money to my savings?"
+print(f"\n Turn 3:{turn3_message}")
+response = agent.invoke(
+  {"messages":[{"role":"user","content":turn3_message}]},
+  context=bob_context,
+  config=memory_config
+  )
+print(f"Agent summary: {response['structured_response'].summary}")
+print(f"Agent Recommendations: {response['structured_response'].action_items}")
 
 
 if __name__ == "__main__":
