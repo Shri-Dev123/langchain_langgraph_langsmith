@@ -1,0 +1,169 @@
+from langchain_openai import ChatOpenAI
+from langgraph.graph import StateGraph, START, END
+from typing import TypedDict
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+class OverallState(TypedDict):
+  topic:str
+  instagram_post:str
+  twitter_post:str
+  linkedin_post:str
+  final_output:str
+
+llm = ChatOpenAI(model="gpt-5.6",api_key=os.getenv("MY_CUSTOM_KEY_VARIABLE"))
+
+# Nodes
+
+def generate_instagram(state:OverallState)->OverallState:
+  """Generate and engaging Instagram post with emojis and hashtags"""
+
+  print("📸 Instagram Generateor: Creating post...")
+
+  prompt=f"""
+  Create an Instagram post about: {state['topic']}
+
+  Requirements:
+  - Engaging and visual language
+  - 2-3 short paragraphs (150-200 words max)
+  - Include relevant emojis
+  - End with 5-8 relevant hashtags
+  - Casual, friendly tone
+  - Call-to-action to engage with the post
+
+  make it perfect for Instagram's audience."""
+
+  instagram_post = llm.invoke(prompt).content
+
+  print("✅ Instagram generator:Complete\n")
+
+  return {
+    "instagram_post":instagram_post
+  }
+
+def generate_twitter(state:OverallState)->OverallState:
+  """Generate a concise Twitter post"""
+
+  print("🐤 Twitter generator: createing posts....")
+
+  prompt = f"""
+  Create a Twitter post about: {state['topic']}
+
+  Requirements:
+  - Maximum 280 characters (this is crucial!)
+  - Punchy and attendtion-grabbing
+  - Include 2-3 relevant hashtags
+  - Coversational tone
+  - Can use emojis sparingly
+  - Should spark engagement/replies
+
+  make it perfect for Twitter's fast-paced environment."""
+
+  twitter_post = llm.invoke(prompt).content
+
+  print("✅ Twitter generator:Complete\n")
+
+  return {
+    "twitter_post":twitter_post
+  }
+
+def generate_linkedin(state:OverallState)->OverallState:
+  """Genearate a professional Linkedin post"""
+
+  print("🧳 Linkedin Generator: Creating post...")
+
+  prompt = f"""
+  Create a LinkedIn post about: {state['topic']}
+
+  Requirements:
+  - Professional yet engaging tone
+  - 3-4 paragraphs (200-300 words)
+  - Include insights or lessons learned
+  - Use line breaks for readablility
+  - Add 3-5 professional hashtags
+  - Include a thought-provoking question at the end
+  - Focus on value and professional development
+
+  make it perfect for LinkedIn's professional audience."""
+
+  linkedin_post = llm.invoke(prompt).content
+  
+  print("✅ Linkeding generator:Complete\n")
+  
+  return {
+      "linkedin_post":linkedin_post
+    }
+
+def agrrigate_posts(state:OverallState)->OverallState:
+  """Combile all platform posts into a formatted final output"""
+
+  print("📝 Aggregator: Combining all posts...\n")
+
+  final_output = f"""
+  {'=' * 70}
+  SOCIAL MEDIA CONTENT PACKAGE
+  {'=' * 70}
+  Topic: {state['topic']}
+
+  {'=' * 70}
+  INSTAGRAM POST
+  {'=' * 70}
+
+  {state['instagram_post']}
+
+  {'=' * 70}
+  TWITTER POST
+  {'=' * 70}
+
+  {state['twitter_post']}
+
+  {'=' * 70}
+  LINKEDIN POST
+  {'=' * 70}
+
+  {state['linkedin_post']}"""
+
+  return {
+    "final_output":final_output
+  }
+
+# Creating a graph
+
+builder = StateGraph(OverallState)
+
+builder.add_node(generate_instagram)
+builder.add_node(generate_twitter)
+builder.add_node(generate_linkedin)
+builder.add_node(agrrigate_posts)
+
+# Parellel operation graph, start node will point to each node
+builder.add_edge(START,"generate_instagram")
+builder.add_edge(START,"generate_twitter")
+builder.add_edge(START,"generate_linkedin")
+
+# From each node to Agreegator node.
+builder.add_edge("generate_instagram","agrrigate_posts")
+builder.add_edge("generate_twitter","agrrigate_posts")
+builder.add_edge("generate_linkedin","agrrigate_posts")
+
+# terminate the graph at end, after aggregation
+builder.add_edge("agrrigate_posts",END)
+
+graph = builder.compile()
+
+topic = "The impact of AI on workplace productivity"
+
+print(f"/n🎯 Topic:{topic}")
+
+result = graph.invoke({
+  "topic":topic,
+  "instagram_post":"",
+  "twitter_post":"",
+  "linkedin_post":"",
+  "final_output":""
+})
+
+print(result['final_output'])
+
