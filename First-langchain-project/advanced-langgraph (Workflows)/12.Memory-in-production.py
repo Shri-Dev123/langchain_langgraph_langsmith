@@ -79,3 +79,28 @@ with PostgresSaver.from_conn_string(DB_URI) as checkpointer:
     for snapshot in graph.get_state_history(config):
         print("State:", snapshot.values)
         print("Next:", snapshot.next)
+
+
+    """
+    Development / Learning
+----------------------
+MemorySaver
+    ↓
+RAM
+    ↓
+App restarts ❌
+State may be lost
+
+
+Production
+----------
+Persistent Checkpointer
+    ↓
+Database
+    ↓
+App restarts
+    ↓
+State still available ✅
+    
+    
+    """
